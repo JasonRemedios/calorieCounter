@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html>
+  <script src="https://unpkg.com/react@17/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/babel-standalone@6.15.0/babel.min.js"></script>
+  <body>
+  
+    <div id="root"></div>
+
+    <script type="text/babel">
+
+ if (localStorage.getItem('totals') === null) {
+  let item = JSON.stringify({undo:[], 'dailyTotal': '0', 'dailyProteinTotal': '0'});
+  localStorage.setItem('totals', item);
+}
+
+class Button extends React.Component {
+
+  render() {
+    return (
+      <button className="square" onClick={this.props.click}>
+        {this.props.name}
+      </button>
+    );
+  }
+}
+
+class TableRow extends React.Component {
+  constructor(props) {
+    super(props);
+  }
+
+  render() {
+    let name = this.props.name;
+    let kcals = this.props.kcals;
+    let protein = this.props.protein;
+    if (this.props.showButton) {
+      var button = (<td><Button name='select' click={() => this.props.select(name, kcals, protein)} /></td>);
+    }
+
+    return (
+      <tr>
+        <td>{name}</td>
+        <td>{kcals}</td>
+        <td>{protein}</td>
+        {this.props.showButton ? button : null}
+      </tr>
+    );
+  }
+}
+
+
+class Results extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
+      coef: 1,
+      combine: [],
+      showCombine: false,
+      browse: false 
+    }
+  }
+
+  myChangeHandler = (event) => {
+    this.setState({coef: event.target.value / 100})
+  }
+
+  combine = (nextLog, nextProteinLog, name) => {
+    let array = this.state.combine;
+    array.push([name, nextLog, nextProteinLog]);
+    this.setState({combine: array, showCombine: true});
+    document.getElementById('search').focus();
+  }
+
+  finish = (kcals, protein) => {
+    let name = document.getElementById('recipeName').value;
+    let servingCount = document.getElementById('servingCount').value;
+    let servingKcals = Math.round(kcals / servingCount);
+    let servingProtein = Math.round(protein / servingCount);
+    localStorage.setItem('1/' + servingCount + ' ' + name, [1, servingKcals, servingProtein]);
+    this.setState({combine: [], showCombine: false});
+    this.props.refresh();
+  }
+
+  finishAdjustable = (kcals, protein) => {
+    let name = document.getElementById('recipeName').value;
+    let servingCount = document.getElementById('servingCount').value;
+    let servingKcals = Math.round(100 * kcals / servingCount);
+    let servingProtein = Math.round(100 * protein / servingCount);
+    localStorage.setItem('1/' + servingCount + ' ' + name, [1, servingKcals, servingProtein, true]);
+    this.setState({combine: [], showCombine: false});
+    this.props.refresh();
+  }
+
+  componentDidMount() {
+    document.getElementById('grams').focus();
+  }
+
+  /*componentDidUpdate() {
+    document.getElementById('search').focus();
+  }*/
+
+  browse = () => {
+    let terms = this.props.lastSearch;
+    var x =
+    fetch('https://api.nal.usda.gov/fdc/v1/foods/search?api_key=DbeEFsZYN8AOSGGbxlZ0tC2HzfekYFOWHeqd2R89&query=' + terms)
+      .then(res => res.json())
+      .then((data) => this.setState({browse: browseFoods(data)}));
+  }
+
+
+  render() {
+    let kcals = Math.round(this.props.kcals * this.state.coef);
+    let protein = Math.round(this.props.protein * this.state.coef);
+    let name = (this.state.coef * 100 + 'g ' + this.props.name).toLowerCase();
+    let displayName = this.props.name + ' ';
+
+    if (this.state.browse !== false) {
+      let browsedBoard = [];
+      for (let obj of this.state.browse) {
+        browsedBoard.push(<TableRow name={obj.name} kcals={obj.kcal} protein={obj.protein} select={this.props.select} showButton={true} />);
+      }
+      var finishedBrowsedBoard = (
+        <table>
+          <tbody>
+            <tr>
+              <th></th>
+              <th>kcals</th>
+              <th>protein</th>
+              <th></th>
+            </tr>
+            {browsedBoard}
+          </tbody>
+        </table>
+      );
+    }
+
+    if (this.state.showCombine === true) {
+      let board = []
+      var kcalSum = 0;
+      var proteinSum = 0;
+
+      for (let food of this.state.combine) {
+        board.push(<TableRow name={food[0]} kcals={food[1]} protein={food[2]} />);
+        kcalSum += food[1];
+        proteinSum += food[2];
+      }
+
+      var finished = (<span>
+                <table>
+                  <tbody>
+                    <tr>
+                      <th></th>
+                      <th>kcals</th>
+                      <th>protein</th>
+                    </tr>
+                    {board}
+                    <tr>
+                      <td>Result:</td>
+                      <td>{kcalSum}</td>
+                      <td>{proteinSum}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <form onSubmit={() => this.finish(kcalSum, proteinSum)}>
+                  <label htmlFor='recipeName'>Name: </label>
+                  <input id='recipeName'></input><br></br>
+                  <label htmlFor='servingCount'>Servings: </label>
+                  <input id='servingCount'></input>
+                  <Button name='Finish' click={() => this.finish(kcalSum, proteinSum)} />
+                  <Button name='Finish adjustable' click={() => this.finishAdjustable(kcalSum, proteinSum)} />
+                </form>
+              </span>
+            );
+          }
+    
+    return (<div>
+          <p>
+            {capitalizeFirstLetter(displayName)} <b>{kcals}</b> kcal <b>{protein}</b>
+            g protein <input id='grams' type='text' onChange={this.myChangeHandler} onKeyDown={(ev) => this.props.handleEnter(() => this.props.click(kcals, protein, name), ev)}></input>
+            g <Button name='Log' click={() => this.props.click(kcals, protein, name, false)} />
+            <Button name='Log w/o button' click={() => this.props.logWithoutButton(kcals, protein, name)} />
+            <Button name='Log w/o g' click={() => this.props.click(kcals, protein, capitalizeFirstLetter(this.props.name), true, this.state.coef)} />
+            <Button name='Browse more' click={() => this.browse()} />
+            <Button name='Combine' click={() => this.combine(kcals, protein, name)} />
+            <Button name='Cancel' click={() => this.props.cancel()} />
+          </p>
+          {this.state.showCombine ? finished : null}
+          {this.state.browse ? finishedBrowsedBoard : null}
+        </div>
+    );
+  }
+}
+
+class AdjustWeight extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
+      coef: 1
+    }
+  }
+
+  myChangeHandler = (event) => {
+    this.setState({coef: event.target.value / 100})
+  }
+
+  componentDidMount() {
+    document.getElementById('adjustLog').focus();
+  }
+
+  render() {
+    let kcals = Math.round(this.props.kcals * this.state.coef);
+    let protein = Math.round(this.props.protein * this.state.coef);
+    let name = (this.state.coef * 100 + 'g ' + this.props.name).toLowerCase();
+    let displayName = this.props.name + ' ';
+
+    return(
+      <div>
+        {displayName} <b>{kcals}</b> kcals <b>{protein}</b>g
+        <input id='adjustLog' onChange={this.myChangeHandler} onKeyDown={(ev) => this.props.handleEnter(() => this.props.click(kcals, protein, this.props.name), ev)}></input>
+        <Button name='cancel' click={this.props.cancel} />
+      </div>
+    );
+  }
+}
+
+class Main extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
+      goal: JSON.parse(localStorage.getItem('totals')).dailyTotal,
+      proteinGoal: JSON.parse(localStorage.getItem('totals')).dailyProteinTotal,
+      showNutrition: false,
+      list: [],
+      showKcal: false,
+      showProtein: false,
+      combine: [],
+      showSettings: false,
+      deleteButton: false,
+      createFood: false,
+      updateGoals: false,
+      lastSearch: null,
+      adjust: null,
+      lastLog: null
+    };
+  }
+
+  logWithoutButton = (kcals, protein, name) => {
+    var newGoal = this.state.goal - kcals;
+    var newProteinGoal = this.state.proteinGoal - protein;
+    this.setState({goal:newGoal, proteinGoal: newProteinGoal, showNutrition: false, lastLog: name});
+    document.cookie = 'dailyTotal=' + newGoal;
+    document.cookie = 'dailyProteinTotal=' + newProteinGoal;
+    let item = JSON.parse(localStorage.getItem('totals'));
+    item.dailyTotal = newGoal;
+    item.dailyProteinTotal = newProteinGoal;
+    item = JSON.stringify(item);
+    localStorage.setItem('totals', item);
+  }
+
+  renderButtons() {
+    var unsortedArray = [];
+
+    for (var i = 0; i < localStorage.length; i++) {
+      var key = localStorage.key(i);
+      if (key === 'totals') {
+        continue;
+      }
+      unsortedArray.push([key, localStorage[key].split(',')]);
+    }
+
+    const sortedArray = unsortedArray.sort(function(b, a) {
+        return a[1][0] - b[1][0];});
+    var board = [];
+
+    console.log(sortedArray);
+
+    for (let i of sortedArray) {
+       let r = i[0];
+       let kcals = i[1][1];
+       let protein = i[1][2];
+      try { 
+        if (i[1].length === 3) {    
+          board.push(<Button name={r} click={() => this.buttonLog(kcals, protein, r)} />);
+        } else {
+          board.push(<Button name={r} click={() => this.adjustLog(kcals, protein, r)} />);
+        } 
+      } catch(err) {console.log(err);}
+      
+    }
+    var finished = (<div>{board}</div>);
+    return finished;
+  }
+
+  adjustCancel = () => {
+    this.setState({adjust: null});
+  }
+
+  adjustLog = (kcals, protein, name) => {
+    if (this.state.deleteButton) {
+      localStorage.removeItem(name);
+      this.setState({deleteButton: false, showSettings: false});
+    } else {
+      this.setState({adjust: [kcals, protein, name]});
+    }
+  }
+
+  search = () => {
+    var terms = document.getElementById('search').value.replace(' ', '%20');
+    var x = 
+    fetch('https://api.nal.usda.gov/fdc/v1/foods/search?api_key=DbeEFsZYN8AOSGGbxlZ0tC2HzfekYFOWHeqd2R89&query=' + terms)
+      .then(res => res.json())
+      .then(data => this.setState({list: findCal(data)}));
+    console.log(x);
+    this.setState({showNutrition: true, list: x, lastSearch: terms});
+    console.log(this.state.showNutrition);
+  }
+
+
+
+  nutrition = () => {
+    var showNutrition = this.state.showNutrition;
+    var list = this.state.list;
+    if (showNutrition != false) {
+      return (
+        <Results kcals={list[1]} protein={list[0]} name={list[2]} lastSearch={this.state.lastSearch} click={this.searchLog} logWithoutButton={this.logWithoutButton} select={this.select} combine={this.combine} refresh={this.refresh} cancel={this.cancel} handleEnter={this.handleEnter} LogW={this.logWithoutWeight} />
+      );
+    }
+  }
+
+  select = (name, kcals, protein) => {
+    let list = [protein, kcals, name];
+    this.setState({list: list, lastSearch: name});
+    document.getElementById('grams').focus();
+
+  }
+
+  refresh = () => {
+    this.setState({showNutrition: false});
+  }
+
+  log = () => {
+    var nextLog = document.getElementById('nextLog').value;
+    var newGoal = this.state.goal - nextLog;
+    this.setState({goal: newGoal, showKcal: false, lastLog: nextLog + ' kcals'});
+    document.cookie = 'dailyTotal=' + newGoal;
+    let item = JSON.parse(localStorage.getItem('totals'));
+    item.dailyTotal = newGoal;
+    item = JSON.stringify(item);
+    localStorage.setItem('totals', item);
+    //localStorage.setItem(nextLog + ' kcals', [1, nextLog, 0]);
+  }
+
+  proteinLog = () => {
+    var nextLog = document.getElementById('nextLog').value;
+    var newGoal = this.state.proteinGoal - nextLog;
+    this.setState({proteinGoal: newGoal, showProtein: false, lastLog: nextLog + ' g'});
+    document.cookie = 'dailyProteinTotal=' + newGoal;
+    let item = JSON.parse(localStorage.getItem('totals'));
+    item.dailyProteinTotal = newGoal;
+    item = JSON.stringify(item);
+    localStorage.setItem('totals', item);
+    //localStorage.setItem(nextLog + 'g protein', [1, 0, nextLog]);
+  }
+
+  reset = () => {
+    /*var originalTotal = getCookie('originalTotal');
+    var OGproteinTotal = getCookie('OGproteinTotal');*/
+    let item = JSON.parse(localStorage.getItem('totals'));
+    let originalTotal = item.originalTotal;
+    let OGproteinTotal = item.OGproteinTotal;
+    this.setState({goal: originalTotal, proteinGoal: OGproteinTotal});
+    document.cookie = 'dailyTotal=' + originalTotal;
+    document.cookie = 'dailyProteinTotal=' + OGproteinTotal;
+    item.dailyTotal = originalTotal;
+    item.dailyProteinTotal = OGproteinTotal;
+    let str = JSON.stringify(item);
+    localStorage.setItem('totals', str);
+  }
+
+  buttonLog = (nextLog, nextProteinLog, name) => {
+    if (this.state.deleteButton === true) {
+      localStorage.removeItem(name);
+      this.setState({deleteButton: false, showSettings: false});
+    } else {
+      var newGoal = this.state.goal - nextLog;
+      var newProteinGoal = this.state.proteinGoal - nextProteinLog;
+      this.setState({goal: newGoal, proteinGoal: newProteinGoal, lastLog: name});
+      document.cookie = 'dailyTotal=' + newGoal;
+      document.cookie = 'dailyProteinTotal=' + newProteinGoal;
+      let totals = JSON.parse(localStorage.getItem('totals'));
+      totals.dailyTotal = newGoal;
+      totals.dailyProteinTotal = newProteinGoal;
+      totals = JSON.stringify(totals);
+      localStorage.setItem('totals', totals);
+      var item = localStorage.getItem(name).split(',');
+      var count = item[0];
+      console.log(item.length);
+      console.log(item);
+      if (item.length === 3) {
+        localStorage.setItem(name, [Number(count) + 1, nextLog, nextProteinLog]);
+      } else {
+        let adjust = this.state.adjust;
+        localStorage.setItem(name, [Number(count) + 1, adjust[0], adjust[1], true]);
+        this.setState({adjust: null});
+      }   
+    } 
+  }
+
+  searchLog = (nextLog, nextProteinLog, name, weight, coef) => {
+    var newGoal = this.state.goal - nextLog;
+    var newProteinGoal = this.state.proteinGoal - nextProteinLog;
+    this.setState({goal:newGoal, proteinGoal: newProteinGoal, showNutrition: false, lastLog: name});
+    document.cookie = 'dailyTotal=' + newGoal;
+    document.cookie = 'dailyProteinTotal=' + newProteinGoal;
+    let item = JSON.parse(localStorage.getItem('totals'));
+    item.dailyTotal = newGoal;
+    item.dailyProteinTotal = newProteinGoal;
+    item = JSON.stringify(item);
+    localStorage.setItem('totals', item);
+    if (name.length > 35) {
+      name = spliceSlice(name, 15, 5, '...');
+    }
+    if (weight) {
+      nextLog = Math.round(nextLog / coef);
+      nextProteinLog = Math.round(nextProteinLog / coef);
+      localStorage.setItem(name, [1, nextLog, nextProteinLog, true]);
+    } else {
+      localStorage.setItem(name, [1, nextLog, nextProteinLog]);
+    }
+  }
+
+  kcalLog = (func) => {
+    return(
+      <div>
+        <input id='nextLog' onKeyDown={(event) => this.handleEnter(func, event)}></input>
+        <button onClick={func}>submit</button>
+        <Button name='cancel' click={() => this.setState({showKcal: false, showProtein: false})} />
+      </div>
+    )
+  }
+
+  showSettings = () => {
+    if (this.state.showSettings === false) {
+      return(
+        <Button name='&#8942;' click={() => this.setState({showSettings: true})} />
+      );
+    } else {
+      return(
+        <div>
+          <Button name='Delete button' click={() => this.setState({deleteButton: true})} />
+          <Button name='Create food' click={() => this.setState({createFood: true})} />
+          <Button name='Update nutrient goals' click={() => this.setState({updateGoals: true})} />
+          <Button name='X' click={() => this.setState({showSettings: false, deleteButton: false, createFood: false, updateGoals: false})} />
+        </div>
+      );
+    }
+  }
+
+  createFood = () => {
+    return(
+      <form onSubmit={(event) => this.submitCreatedFood(false, event)}>
+        <label htmlFor='createFoodName'>Name: </label>
+        <input id='createFoodName'></input><br></br>
+        <label htmlFor='createFoodKcals'>Kcals: </label>
+        <input id='createFoodKcals'></input><br></br>
+        <label htmlFor='createFoodProtein'>Protein: </label>
+        <input id='createFoodProtein'></input>
+        <input type='submit'/>
+        <button id='createAdjustable' onClick={(event) => this.submitCreatedFood(true, event)}>Log adjustable</button>
+      </form>
+    );
+  }
+
+  submitCreatedFood = (bool, event) => {
+    event.preventDefault();
+     let name = document.getElementById('createFoodName').value;
+     let kcals = document.getElementById('createFoodKcals').value;
+     let protein = document.getElementById('createFoodProtein').value;
+     if (bool) {
+      localStorage.setItem(name, [1, kcals, protein, true]);
+     } else {
+      localStorage.setItem(name, [1, kcals, protein]);  
+     }
+     this.setState({createFood: false, showSettings: false});
+  } 
+
+//configure empty input
+  updateGoals = () => {
+    return (
+      <form onSubmit={this.submitGoals}>
+        <label htmlFor='updateKcals'>New kcal goal: </label>
+        <input id='updateKcals'></input>
+        <label htmlFor='updateProtein'> New protein goal: </label>
+        <input id='updateProtein'></input>
+        <input type='submit'/>
+      </form>
+    );
+  }
+
+  submitGoals = (event) => {
+    event.preventDefault();
+    var newKcals = document.getElementById('updateKcals').value;
+    var newProtein = document.getElementById('updateProtein').value;
+    document.cookie = 'originalTotal=' + newKcals;
+    document.cookie = 'OGproteinTotal=' + newProtein;
+    let item = JSON.parse(localStorage.getItem('totals'));
+    item.originalTotal = newKcals;
+    item.OGproteinTotal = newProtein;
+    item = JSON.stringify(item);
+    localStorage.setItem('totals', item);
+    this.setState({updateGoals: false, showSettings: false});
+  }
+
+  handleEnter = (func, event) => {
+    if (event.which === 13) {
+      func();
+    }
+  }
+
+  cancel = () => {
+    this.setState({showNutrition: false});
+  }
+
+  componentDidMount() {
+    document.getElementById('search').focus();
+  }
+
+  nextDay = () => {
+    let item = JSON.parse(localStorage.getItem('totals'));
+    var newGoal = Number(this.state.goal) + Number(item.originalTotal);
+    let newProteinGoal = Number(this.state.proteinGoal) + Number(item.OGproteinTotal);
+    this.setState({goal: newGoal, proteinGoal: newProteinGoal});
+    document.cookie = 'dailyTotal=' + newGoal;
+    document.cookie = 'dailyProteinTotal=' + newProteinGoal;
+    item.dailyTotal = newGoal;
+    item.dailyProteinTotal = newProteinGoal;
+    item = JSON.stringify(item);
+    localStorage.setItem('totals', item);
+  }
+
+  getSnapshotBeforeUpdate(prevProps, prevState) {
+    if ((prevState.goal !== this.state.goal) || (prevState.proteinGoal !== this.state.proteinGoal)) {
+      let item = JSON.parse(localStorage.getItem('totals'));
+      let array = item.undo;
+      if (array[0] === 'undid') {
+        array.shift();
+        } else {  
+          if (array.length >= 25) {
+            array.pop();
+          }
+        let newArray = [prevState.goal, prevState.proteinGoal];
+        if (this.state.lastLog !== null) {
+          newArray.push(this.state.lastLog);
+          this.setState({lastLog: null});
+        }
+        array.unshift(newArray);
+      }
+      item.undo = array;
+      let json_str = JSON.stringify(item);
+      localStorage.setItem('totals', json_str);
+      document.cookie = 'undo=' + json_str;
+
+    }
+  }
+
+  undo = () => {
+    let item = JSON.parse(localStorage.getItem('totals'));
+    let array = item.undo;
+    if (array.length < 1) {
+      return;
+    }
+    this.setState({goal: array[0][0], proteinGoal: array[0][1]});
+    document.cookie = 'dailyTotal=' + array[0][0];
+    document.cookie = 'dailyProteinTotal=' + array[0][1];
+    item.dailyTotal = array[0][0];
+    item.dailyProteinTotal = array[0][1];
+    array.splice(0, 1, 'undid');
+    item.undo = array;
+    let json_str = JSON.stringify(item);
+    localStorage.setItem('totals', json_str);
+    document.cookie = 'undo=' + json_str;
+  }
+
+  componentDidUpdate() {
+    switch (true) {
+      case this.state.showKcal:
+        document.getElementById('nextLog').focus();
+        break;
+      case this.state.showProtein:
+        document.getElementById('nextLog').focus();
+        break;
+      case this.state.createFood:
+        document.getElementById('createFoodName').focus();
+        break;
+      case this.state.updateGoals:
+        document.getElementById('updateKcals').focus();
+    }
+  }
+
+  renderHistory = () => {
+    let array = [];
+    array.push(<br></br>);
+    let undoArray = JSON.parse(localStorage.getItem('totals'));
+    if (this.state.lastLog !== null) {
+      array.push(this.state.lastLog);
+      array.push(<br></br>);
+    }
+    console.log(undoArray.undo);
+    for (let log of undoArray.undo) {
+      if (log === 'undid') {
+        continue;
+      }
+      if (log.length > 2) {
+        array.push(log[2]);
+        array.push(<br></br>);
+      }
+    }
+    return(
+        <div>
+          <span><b>History</b></span>
+          {array}
+        </div>
+      );
+  }
+
+  render() {
+    const headingStyle = {
+      fontFamily: 'Arial',
+      fontSize: '150%'
+    }
+
+    if (this.state.adjust !== null) {
+      let nutrients = this.state.adjust;
+      var adjustHTML = (
+        <AdjustWeight name={nutrients[2]} kcals={nutrients[0]} protein={nutrients[1]} click={this.buttonLog} handleEnter={this.handleEnter} cancel={this.adjustCancel} />
+      );
+    }
+    
+    return (
+      <div>
+        <p style={headingStyle}>
+          <span onClick={() => this.setState({showKcal: true})}><b>{this.state.goal}</b> kcal </span>
+          <span onClick={() => this.setState({showProtein: true})}><b>{this.state.proteinGoal}</b>g</span>
+          {this.showSettings()}
+          <Button click={this.undo} name='&#8634;' />
+        </p>
+        {this.state.showKcal ? this.kcalLog(this.log) : null}
+        {this.state.showProtein ? this.kcalLog(this.proteinLog) : null}
+        {this.state.createFood ? this.createFood() : null}
+        {this.state.updateGoals ? this.updateGoals() : null}
+        <button onClick={this.reset}>Reset</button>
+        <input id='search' onKeyDown={(event) => this.handleEnter(this.search, event)}></input>
+        <button onClick={this.search}>Search</button>
+        <button onClick={this.nextDay}>Next Day</button>
+        {this.state.adjust ? adjustHTML : null}
+        {this.nutrition()}
+        <br></br>
+        {this.renderButtons()}
+        <br></br>
+        {this.renderHistory()}
+      </div>
+    );
+  }
+}
+
+class History extends React.Component {
+  render() {
+    let array = [];
+    let undoArray = JSON.parse(localStorage.getItem('totals'));
+    for (let log of undoArray.undo) {
+      array.push(log[2]);
+      array.push(<br></br>);
+    }
+    return(
+        <div>
+          <h2>History</h2>
+          {array}
+        </div>
+      );
+  }
+}
+
+function getCookie (cname) {
+      var name = cname + "=";
+      var decodedCookie = decodeURIComponent(document.cookie);
+      var ca = decodedCookie.split(';');
+      for(var i = 0; i <ca.length; i++) {
+        var c = ca[i];
+        while (c.charAt(0) === ' ') {
+          c = c.substring(1);
+        }
+        if (c.indexOf(name) === 0) {
+          return c.substring(name.length, c.length);
+        }
+      }
+      return "";
+    }
+
+function findCal(data) {
+  var nutrientArray = [];
+  for (let i of data.foods[0].foodNutrients) {
+    if (i.nutrientName === 'Protein') {
+      console.log(i.value + 'g');
+      nutrientArray.push(i.value);    
+    }
+  }
+
+  for (let i of data.foods[0].foodNutrients) {
+    if (i.unitName === 'KCAL') {
+      console.log(i.value + ' kcal');
+      nutrientArray.push(i.value);
+    }
+  }
+  nutrientArray.push(data.foods[0].description);
+      
+  console.log(nutrientArray);
+  return nutrientArray;
+}
+
+function browseFoods(data) {
+  let foodArray = [];
+  for (let i = 1; i < 4; i++) {
+    let obj = {};
+    let food = data.foods[i];
+    for (let k of food.foodNutrients) {
+      if (k.unitName === 'KCAL') {
+        obj.kcal = k.value;
+      } else if (k.nutrientName === 'Protein') {
+        obj.protein = k.value;
+      }
+    }
+    obj.name = capitalizeFirstLetter(food.description);
+    foodArray.push(obj);
+  }
+  console.log(foodArray);
+  return foodArray;
+}
+
+function capitalizeFirstLetter(string) {
+    return string.charAt(0).toUpperCase() + string.slice(1).toLowerCase();
+}
+
+function spliceSlice(str, index, count, add) {
+  if (index < 0) {
+    index = str.length + index;
+    if (index < 0) {
+      index = 0; 
+    }
+  }
+
+  return str.slice(0, index) + (add || "") + str.slice(index + count);
+}
+
+ReactDOM.render(<Main />, document.getElementById('root'));
+    </script>
+  </body>
+</html>
